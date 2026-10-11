@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { router } from 'expo-router';
 import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useApp, type Moneda } from '@/context/AppContext';
 import PrimaryButton from '@/components/PrimaryButton';
@@ -7,6 +6,7 @@ import PercentSlider from '@/components/PercentSlider';
 import Logo from '@/components/Logo';
 import { Brand } from '@/constants/brand';
 import { FEATURES } from '@/constants/features';
+import { errorMessage } from '@/services/api';
 
 const OPCIONES: { value: Moneda; symbol: string }[] = [
   { value: 'PEN', symbol: 'S/' },
@@ -15,7 +15,7 @@ const OPCIONES: { value: Moneda; symbol: string }[] = [
 ];
 
 export default function Ajustes() {
-  const { profile, updateProfile, resetAll } = useApp();
+  const { profile, updateProfile, signOut } = useApp();
   const [apodo, setApodo] = useState(profile?.apodo ?? '');
   const [moneda, setMoneda] = useState<Moneda>(profile?.moneda ?? 'PEN');
   const [pct, setPct] = useState(profile?.ahorroPct ?? 15);
@@ -29,22 +29,25 @@ export default function Ajustes() {
       return;
     }
     setError(null);
-    await updateProfile({ apodo: apodo.trim(), moneda, ahorroPct: pct });
+    try {
+      await updateProfile({ apodo: apodo.trim(), moneda, ahorroPct: pct });
+    } catch (e) {
+      setError(errorMessage(e));
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const handleCerrarSesion = () => {
     // El cierre de sesión funciona siempre, aunque el resto de Ajustes todavía esté bloqueado.
-    Alert.alert('Cerrar sesión', '¿Seguro que quieres borrar tus datos y volver al registro?', [
+    Alert.alert('Cerrar sesión', '¿Seguro que quieres salir? Tus datos quedan guardados en tu cuenta.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Cerrar sesión',
         style: 'destructive',
-        onPress: async () => {
-          await resetAll();
-          router.replace('/registro');
-        },
+        // Al quedar sin sesión, _layout.tsx muestra el login.
+        onPress: signOut,
       },
     ]);
   };
