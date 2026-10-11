@@ -6,6 +6,7 @@ import StepDots from '@/components/StepDots';
 import PrimaryButton from '@/components/PrimaryButton';
 import { useApp, type Moneda } from '@/context/AppContext';
 import { Brand } from '@/constants/brand';
+import { errorMessage } from '@/services/api';
 
 const OPCIONES: { value: Moneda; label: string; symbol: string }[] = [
   { value: 'PEN', label: 'Soles', symbol: 'S/' },
@@ -16,15 +17,25 @@ const OPCIONES: { value: Moneda; label: string; symbol: string }[] = [
 export default function RegistroMoneda() {
   const { draft, setDraft, registerProfile } = useApp();
   const [moneda, setMoneda] = useState<Moneda>(draft.moneda ?? 'PEN');
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
 
   const handleFinalizar = async () => {
     setDraft((d) => ({ ...d, moneda }));
-    await registerProfile({
-      apodo: draft.apodo ?? '',
-      ahorroPct: draft.ahorroPct ?? 15,
-      moneda,
-    });
-    router.replace('/');
+    setError(null);
+    setGuardando(true);
+    try {
+      // Guarda el perfil en el servidor (tabla perfil) y en el celular.
+      await registerProfile({
+        apodo: draft.apodo ?? '',
+        ahorroPct: draft.ahorroPct ?? 15,
+        moneda,
+      });
+      router.replace('/');
+    } catch (e) {
+      setError(errorMessage(e));
+      setGuardando(false);
+    }
   };
 
   return (
@@ -52,9 +63,10 @@ export default function RegistroMoneda() {
             );
           })}
         </View>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
       <View style={styles.footer}>
-        <PrimaryButton title="¡Empezar!" onPress={handleFinalizar} />
+        <PrimaryButton title="¡Empezar!" onPress={handleFinalizar} loading={guardando} />
       </View>
     </SafeAreaView>
   );
@@ -81,5 +93,6 @@ const styles = StyleSheet.create({
   optionLabel: { fontSize: 15, fontWeight: '600', color: Brand.textPrimary },
   optionLabelSelected: { color: '#FFFFFF' },
   check: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  error: { fontSize: 13, color: Brand.danger, marginTop: 16, alignSelf: 'flex-start' },
   footer: { padding: 24 },
 });
