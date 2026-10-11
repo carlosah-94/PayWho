@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp, type Moneda } from '@/context/AppContext';
 import PrimaryButton from '@/components/PrimaryButton';
 import PercentSlider from '@/components/PercentSlider';
@@ -53,7 +54,7 @@ export default function Ajustes() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.title}>Ajustes</Text>
 

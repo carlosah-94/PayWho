@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { formatFechaHora, formatMonto, nombreMes, nombreMesCorto } from '@/utils/format';
 import Card from '@/components/Card';
@@ -67,7 +68,7 @@ export default function Inicio() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.header}>
           <View>
