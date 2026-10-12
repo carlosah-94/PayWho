@@ -38,6 +38,7 @@ export default function RegistroApodo() {
             setApodo(t);
             setError(null);
           }}
+          maxLength={30}
           autoFocus
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
