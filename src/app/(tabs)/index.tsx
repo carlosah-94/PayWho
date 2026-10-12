@@ -15,7 +15,8 @@ function isSameMonth(iso: string, ref: Date) {
 
 export default function Inicio() {
   const { profile, operaciones, ahorros, syncing, syncError, refreshData } = useApp();
-  const now = new Date();
+  // La fecha de hoy se calcula una sola vez al abrir la pantalla.
+  const now = useMemo(() => new Date(), []);
   const moneda = profile?.moneda ?? 'PEN';
 
   const { totalIngreso, totalGasto, totalAhorro } = useMemo(() => {
@@ -31,8 +32,7 @@ export default function Inicio() {
       if (isSameMonth(e.fecha, now)) ahorro += e.monto;
     }
     return { totalIngreso: ingreso, totalGasto: gasto, totalAhorro: ahorro };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [operaciones, ahorros]);
+  }, [operaciones, ahorros, now]);
 
   const balance = totalIngreso - totalGasto;
 
@@ -55,8 +55,7 @@ export default function Inicio() {
       }
       return { label: nombreMesCorto(mesRef), ingreso, gasto, ahorro };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [operaciones, ahorros]);
+  }, [operaciones, ahorros, now]);
 
   const movimientos = useMemo(
     () =>
