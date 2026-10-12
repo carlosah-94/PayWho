@@ -7,7 +7,16 @@
  *
  * La dirección y la llave pública se leen del archivo .env (que no se sube al repo).
  */
-import type { Moneda, Profile } from '@/context/AppContext';
+import type {
+  Ahorro,
+  Categoria,
+  EstadoMeta,
+  MetaAhorro,
+  Moneda,
+  Operacion,
+  Profile,
+  TipoOperacion,
+} from '@/context/AppContext';
 
 const BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const API_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
@@ -76,6 +85,11 @@ let refreshInProgress: Promise<void> | null = null;
 /** AppContext la usa al abrir la app para restaurar la sesión guardada en AsyncStorage. */
 export function setSession(session: Session | null) {
   currentSession = session;
+}
+
+/** Id del usuario con sesión iniciada, o null si no hay sesión. */
+export function getUserId() {
+  return currentSession?.userId ?? null;
 }
 
 /** AppContext se registra aquí para enterarse cuando el token se renueva o la sesión deja de ser válida. */
@@ -307,4 +321,261 @@ export async function updateProfile(partial: Partial<Profile>) {
   );
   if (rows.length === 0) throw new ApiError('No se encontró tu perfil.', 404);
   return toProfile(rows[0]);
+}
+
+// ---------------------------------------------------------------------------
+// Ayudas para las demás tablas (crear, editar y eliminar una fila)
+// ---------------------------------------------------------------------------
+
+// Le pide al servidor que devuelva la fila tal como quedó guardada.
+const RETURN_ROW = { Prefer: 'return=representation' };
+
+async function insertRow<T>(table: string, select: string, body: unknown) {
+  const rows = await request<T[]>(`/rest/v1/${table}?select=${select}`, {
+    method: 'POST',
+    headers: RETURN_ROW,
+    body,
+  });
+  return rows[0];
+}
+
+async function updateRow<T>(table: string, id: number, select: string, body: unknown) {
+  const rows = await request<T[]>(`/rest/v1/${table}?id=eq.${id}&select=${select}`, {
+    method: 'PATCH',
+    headers: RETURN_ROW,
+    body,
+  });
+  if (rows.length === 0) throw new ApiError('No se encontró el registro.', 404);
+  return rows[0];
+}
+
+async function deleteRow(table: string, id: number) {
+  await request<null>(`/rest/v1/${table}?id=eq.${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
+// Tabla categoria_operacion
+// ---------------------------------------------------------------------------
+
+interface CategoriaRow {
+  id: number;
+  usuario_id: string | null;
+  nombre: string;
+  icon: string;
+  tipo: TipoOperacion;
+}
+
+export interface CategoriaInput {
+  nombre: string;
+  icon: string;
+  tipo: TipoOperacion;
+}
+
+const CATEGORIA_COLUMNS = 'id,usuario_id,nombre,icon,tipo';
+
+function toCategoria(row: CategoriaRow): Categoria {
+  // usuario_id vacío = categoría predefinida (la ven todos y no se puede editar).
+  return { id: row.id, nombre: row.nombre, icon: row.icon, tipo: row.tipo, predefinida: row.usuario_id === null };
+}
+
+/** GET: categorías predefinidas + las creadas por el usuario. */
+export async function getCategorias() {
+  const rows = await request<CategoriaRow[]>(
+    `/rest/v1/categoria_operacion?select=${CATEGORIA_COLUMNS}&order=id.asc`
+  );
+  return rows.map(toCategoria);
+}
+
+/** POST: crea una categoría propia del usuario. */
+export async function createCategoria(input: CategoriaInput) {
+  return toCategoria(await insertRow<CategoriaRow>('categoria_operacion', CATEGORIA_COLUMNS, input));
+}
+
+/** DELETE: elimina una categoría propia (el servidor lo impide si tiene operaciones). */
+export function deleteCategoria(id: number) {
+  return deleteRow('categoria_operacion', id);
+}
+
+// ---------------------------------------------------------------------------
+// Tabla operacion (ingresos y pagos)
+// ---------------------------------------------------------------------------
+
+interface OperacionRow {
+  id: number;
+  monto: number;
+  descripcion: string | null;
+  fecha: string;
+  categoria: CategoriaRow;
+}
+
+export interface OperacionInput {
+  categoriaId: number;
+  monto: number;
+  descripcion?: string | null;
+  fecha?: string;
+}
+
+// Cada operación llega junto con su categoría: de ahí sale si es ingreso o pago.
+const OPERACION_COLUMNS = `id,monto,descripcion,fecha,categoria:categoria_operacion(${CATEGORIA_COLUMNS})`;
+
+function toOperacion(row: OperacionRow): Operacion {
+  return {
+    id: row.id,
+    categoria: toCategoria(row.categoria),
+    monto: Number(row.monto),
+    descripcion: row.descripcion,
+    fecha: row.fecha,
+  };
+}
+
+// Los campos que no se envían quedan como undefined y JSON.stringify los omite.
+function toOperacionRow(input: Partial<OperacionInput>) {
+  return {
+    categoria_id: input.categoriaId,
+    monto: input.monto,
+    descripcion: input.descripcion,
+    fecha: input.fecha,
+  };
+}
+
+/** GET: todos los ingresos y pagos del usuario, del más reciente al más antiguo. */
+export async function getOperaciones() {
+  const rows = await request<OperacionRow[]>(
+    `/rest/v1/operacion?select=${OPERACION_COLUMNS}&order=fecha.desc`
+  );
+  return rows.map(toOperacion);
+}
+
+/** POST: registra un ingreso o un pago (el tipo lo define la categoría elegida). */
+export async function createOperacion(input: OperacionInput) {
+  return toOperacion(await insertRow<OperacionRow>('operacion', OPERACION_COLUMNS, toOperacionRow(input)));
+}
+
+/** PATCH: cambia solo los campos enviados de una operación. */
+export async function updateOperacion(id: number, changes: Partial<OperacionInput>) {
+  return toOperacion(await updateRow<OperacionRow>('operacion', id, OPERACION_COLUMNS, toOperacionRow(changes)));
+}
+
+/** DELETE: elimina una operación (si era un ingreso, el servidor borra también su ahorro automático). */
+export function deleteOperacion(id: number) {
+  return deleteRow('operacion', id);
+}
+
+// ---------------------------------------------------------------------------
+// Tabla meta_ahorro
+// ---------------------------------------------------------------------------
+
+interface MetaRow {
+  id: number;
+  nombre: string;
+  icon: string;
+  meta: number;
+  estado: EstadoMeta;
+  creado_en: string;
+}
+
+export interface MetaInput {
+  nombre: string;
+  meta: number;
+  icon?: string;
+  estado?: EstadoMeta;
+}
+
+const META_COLUMNS = 'id,nombre,icon,meta,estado,creado_en';
+
+function toMeta(row: MetaRow): MetaAhorro {
+  return {
+    id: row.id,
+    nombre: row.nombre,
+    icon: row.icon,
+    meta: Number(row.meta),
+    estado: row.estado,
+    creadoEn: row.creado_en,
+  };
+}
+
+/** GET: metas de ahorro del usuario, de la más nueva a la más antigua. */
+export async function getMetas() {
+  const rows = await request<MetaRow[]>(`/rest/v1/meta_ahorro?select=${META_COLUMNS}&order=creado_en.desc`);
+  return rows.map(toMeta);
+}
+
+/** POST: crea una meta de ahorro. */
+export async function createMeta(input: MetaInput) {
+  return toMeta(await insertRow<MetaRow>('meta_ahorro', META_COLUMNS, input));
+}
+
+/** PATCH: cambia nombre, ícono, monto objetivo o estado de una meta. */
+export async function updateMeta(id: number, changes: Partial<MetaInput>) {
+  return toMeta(await updateRow<MetaRow>('meta_ahorro', id, META_COLUMNS, changes));
+}
+
+/** DELETE: elimina una meta (sus ahorros quedan como ahorro general). */
+export function deleteMeta(id: number) {
+  return deleteRow('meta_ahorro', id);
+}
+
+// ---------------------------------------------------------------------------
+// Tabla ahorro
+// ---------------------------------------------------------------------------
+
+interface AhorroRow {
+  id: number;
+  operacion_id: number | null;
+  meta_id: number | null;
+  monto: number;
+  porcentaje: number | null;
+  fecha: string;
+}
+
+export interface AhorroInput {
+  monto: number;
+  metaId?: number | null; // vacío = ahorro general, sin meta
+  operacionId?: number | null; // solo en ahorros automáticos: el ingreso que lo generó
+  porcentaje?: number | null; // solo en ahorros automáticos
+  fecha?: string;
+}
+
+const AHORRO_COLUMNS = 'id,operacion_id,meta_id,monto,porcentaje,fecha';
+
+function toAhorro(row: AhorroRow): Ahorro {
+  return {
+    id: row.id,
+    operacionId: row.operacion_id,
+    metaId: row.meta_id,
+    monto: Number(row.monto),
+    porcentaje: row.porcentaje,
+    fecha: row.fecha,
+  };
+}
+
+function toAhorroRow(input: Partial<AhorroInput>) {
+  return {
+    monto: input.monto,
+    meta_id: input.metaId,
+    operacion_id: input.operacionId,
+    porcentaje: input.porcentaje,
+    fecha: input.fecha,
+  };
+}
+
+/** GET: todos los ahorros del usuario, del más reciente al más antiguo. */
+export async function getAhorros() {
+  const rows = await request<AhorroRow[]>(`/rest/v1/ahorro?select=${AHORRO_COLUMNS}&order=fecha.desc`);
+  return rows.map(toAhorro);
+}
+
+/** POST: registra un ahorro manual o el ahorro automático de un ingreso. */
+export async function createAhorro(input: AhorroInput) {
+  return toAhorro(await insertRow<AhorroRow>('ahorro', AHORRO_COLUMNS, toAhorroRow(input)));
+}
+
+/** PATCH: cambia el monto o la meta de un ahorro. */
+export async function updateAhorro(id: number, changes: Partial<AhorroInput>) {
+  return toAhorro(await updateRow<AhorroRow>('ahorro', id, AHORRO_COLUMNS, toAhorroRow(changes)));
+}
+
+/** DELETE: elimina un ahorro. */
+export function deleteAhorro(id: number) {
+  return deleteRow('ahorro', id);
 }
