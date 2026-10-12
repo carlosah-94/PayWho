@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { formatFechaHora, formatMonto, nombreMes, nombreMesCorto } from '@/utils/format';
@@ -14,25 +14,25 @@ function isSameMonth(iso: string, ref: Date) {
 }
 
 export default function Inicio() {
-  const { profile, transactions, savingsEntries } = useApp();
+  const { profile, operaciones, ahorros, syncing, syncError, refreshData } = useApp();
   const now = new Date();
   const moneda = profile?.moneda ?? 'PEN';
 
   const { totalIngreso, totalGasto, totalAhorro } = useMemo(() => {
     let ingreso = 0;
     let gasto = 0;
-    for (const t of transactions) {
+    for (const t of operaciones) {
       if (!isSameMonth(t.fecha, now)) continue;
-      if (t.type === 'ingreso') ingreso += t.monto;
+      if (t.categoria.tipo === 'ingreso') ingreso += t.monto;
       else gasto += t.monto;
     }
     let ahorro = 0;
-    for (const e of savingsEntries) {
+    for (const e of ahorros) {
       if (isSameMonth(e.fecha, now)) ahorro += e.monto;
     }
     return { totalIngreso: ingreso, totalGasto: gasto, totalAhorro: ahorro };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, savingsEntries]);
+  }, [operaciones, ahorros]);
 
   const balance = totalIngreso - totalGasto;
 
@@ -45,31 +45,41 @@ export default function Inicio() {
       let ingreso = 0;
       let gasto = 0;
       let ahorro = 0;
-      for (const t of transactions) {
+      for (const t of operaciones) {
         if (!isSameMonth(t.fecha, mesRef)) continue;
-        if (t.type === 'ingreso') ingreso += t.monto;
+        if (t.categoria.tipo === 'ingreso') ingreso += t.monto;
         else gasto += t.monto;
       }
-      for (const e of savingsEntries) {
+      for (const e of ahorros) {
         if (isSameMonth(e.fecha, mesRef)) ahorro += e.monto;
       }
       return { label: nombreMesCorto(mesRef), ingreso, gasto, ahorro };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, savingsEntries]);
+  }, [operaciones, ahorros]);
 
   const movimientos = useMemo(
     () =>
-      transactions
+      operaciones
         .slice()
         .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
         .slice(0, 6),
-    [transactions]
+    [operaciones]
   );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        // Deslizar hacia abajo vuelve a traer los datos del servidor.
+        refreshControl={<RefreshControl refreshing={syncing} onRefresh={refreshData} tintColor={Brand.primary} />}
+      >
+        {syncError ? (
+          <View style={styles.notice}>
+            <Text style={styles.noticeText}>{syncError} Se muestra lo último guardado en el celular.</Text>
+          </View>
+        ) : null}
+
         <View style={styles.header}>
           <View>
             <Text style={styles.month}>{nombreMes(now)}</Text>
@@ -130,11 +140,11 @@ export default function Inicio() {
               {movimientos.map((m) => (
                 <View key={m.id} style={styles.movRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.movCategoria}>{m.categoria}</Text>
+                    <Text style={styles.movCategoria}>{m.categoria.nombre}</Text>
                     <Text style={styles.movFecha}>{formatFechaHora(m.fecha)}</Text>
                   </View>
-                  <Text style={[styles.movMonto, { color: m.type === 'ingreso' ? Brand.ingreso : Brand.pago }]}>
-                    {m.type === 'ingreso' ? '+' : '-'}
+                  <Text style={[styles.movMonto, { color: m.categoria.tipo === 'ingreso' ? Brand.ingreso : Brand.pago }]}>
+                    {m.categoria.tipo === 'ingreso' ? '+' : '-'}
                     {formatMonto(m.monto, moneda)}
                   </Text>
                 </View>
@@ -150,6 +160,8 @@ export default function Inicio() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Brand.background },
   scroll: { padding: 20, gap: 14 },
+  notice: { backgroundColor: Brand.pagoTint, borderRadius: 12, padding: 12 },
+  noticeText: { fontSize: 12, color: Brand.danger },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   month: { fontSize: 12, color: Brand.textSecondary },
   greeting: { fontSize: 22, fontWeight: '800', color: Brand.textPrimary, marginTop: 2 },
