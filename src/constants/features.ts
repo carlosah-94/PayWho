@@ -6,9 +6,7 @@
  * botón "Guardar cambios" quedan deshabilitados. El botón "Cerrar sesión" no
  * depende de esta bandera: siempre funciona.
  *
- * Ingresos, Pagos y Ahorros todavía no tienen código propio: son pantallas
- * en blanco a propósito. Cada integrante va a escribir esa pantalla desde
- * cero en su tarjeta (ver la guía del equipo).
+ * Ingresos, Pagos y Ahorros ya funcionan completas y no dependen de esta bandera.
  *
  * Para activar Ajustes: cambia su valor a `true` en este archivo.
  */

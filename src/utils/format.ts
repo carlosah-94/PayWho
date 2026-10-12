@@ -23,6 +23,21 @@ export function formatMonto(monto: number, moneda: Moneda) {
   return `${SYMBOLS[moneda]} ${monto.toFixed(2)}`;
 }
 
+/** Redondea a 2 decimales (céntimos). */
+export function redondear(valor: number) {
+  return Math.round(valor * 100) / 100;
+}
+
+/**
+ * Convierte lo escrito en un campo de monto en un número.
+ * Acepta coma o punto decimal. Devuelve null si no es un monto válido mayor que 0.
+ */
+export function parseMonto(texto: string) {
+  const valor = Number(texto.trim().replace(',', '.'));
+  if (!Number.isFinite(valor) || valor <= 0 || valor >= 1e10) return null;
+  return redondear(valor);
+}
+
 export function formatFechaHora(iso: string) {
   const d = new Date(iso);
   const fecha = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
