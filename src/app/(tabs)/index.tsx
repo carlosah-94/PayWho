@@ -34,7 +34,9 @@ export default function Inicio() {
     return { totalIngreso: ingreso, totalGasto: gasto, totalAhorro: ahorro };
   }, [operaciones, ahorros, now]);
 
-  const balance = totalIngreso - totalGasto;
+  // Lo que queda libre del mes: a los ingresos se les restan los pagos y lo apartado como ahorro.
+  const balance = totalIngreso - totalGasto - totalAhorro;
+  const enNegativo = balance < 0;
 
   const evolucion: MonthDatum[] = useMemo(() => {
     const meses: Date[] = [];
@@ -113,9 +115,13 @@ export default function Inicio() {
 
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Balance del mes</Text>
-          <Text style={styles.balanceValue}>{formatMonto(balance, moneda)}</Text>
+          <Text style={[styles.balanceValue, enNegativo && styles.balanceNegative]}>
+            {formatMonto(balance, moneda)}
+          </Text>
           <Text style={styles.balanceSub}>
-            Disponible tras {formatMonto(totalGasto, moneda)} en pagos y {formatMonto(totalAhorro, moneda)} apartados.
+            {enNegativo
+              ? 'Anotaste más pagos y ahorros que ingresos este mes. Revisa si te falta registrar un ingreso.'
+              : `Disponible tras ${formatMonto(totalGasto, moneda)} en pagos y ${formatMonto(totalAhorro, moneda)} apartados.`}
           </Text>
         </View>
 
@@ -180,6 +186,7 @@ const styles = StyleSheet.create({
   balanceCard: { backgroundColor: Brand.ink, borderRadius: 18, padding: 20 },
   balanceLabel: { color: '#C6C9D0', fontSize: 13, fontWeight: '600' },
   balanceValue: { color: '#FFFFFF', fontSize: 32, fontWeight: '800', marginTop: 6 },
+  balanceNegative: { color: '#FF8A8E' },
   balanceSub: { color: '#9AA0AC', fontSize: 12, marginTop: 10 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: Brand.textPrimary, marginBottom: 12 },
   emptyState: { alignItems: 'center', paddingVertical: 16 },
