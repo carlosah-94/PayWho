@@ -32,6 +32,8 @@ export interface Operacion {
   monto: number;
   descripcion: string | null;
   comprobante: string | null; // ruta de la foto del comprobante; null = sin foto
+  latitud: number | null; // ubicación (GPS) donde se registró; null = sin ubicación
+  longitud: number | null;
   fecha: string; // ISO
 }
 

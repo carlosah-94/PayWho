@@ -411,6 +411,8 @@ interface OperacionRow {
   monto: number;
   descripcion: string | null;
   comprobante: string | null;
+  latitud: number | null;
+  longitud: number | null;
   fecha: string;
   categoria: CategoriaRow;
 }
@@ -420,11 +422,13 @@ export interface OperacionInput {
   monto: number;
   descripcion?: string | null;
   comprobante?: string | null; // ruta de la foto devuelta por uploadComprobante
+  latitud?: number | null; // ubicación (GPS) donde se registró
+  longitud?: number | null;
   fecha?: string;
 }
 
 // Cada operación llega junto con su categoría: de ahí sale si es ingreso o pago.
-const OPERACION_COLUMNS = `id,monto,descripcion,comprobante,fecha,categoria:categoria_operacion(${CATEGORIA_COLUMNS})`;
+const OPERACION_COLUMNS = `id,monto,descripcion,comprobante,latitud,longitud,fecha,categoria:categoria_operacion(${CATEGORIA_COLUMNS})`;
 
 function toOperacion(row: OperacionRow): Operacion {
   return {
@@ -433,6 +437,8 @@ function toOperacion(row: OperacionRow): Operacion {
     monto: Number(row.monto),
     descripcion: row.descripcion,
     comprobante: row.comprobante,
+    latitud: row.latitud === null ? null : Number(row.latitud),
+    longitud: row.longitud === null ? null : Number(row.longitud),
     fecha: row.fecha,
   };
 }
@@ -444,6 +450,8 @@ function toOperacionRow(input: Partial<OperacionInput>) {
     monto: input.monto,
     descripcion: input.descripcion,
     comprobante: input.comprobante,
+    latitud: input.latitud,
+    longitud: input.longitud,
     fecha: input.fecha,
   };
 }
