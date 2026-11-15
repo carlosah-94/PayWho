@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
@@ -7,6 +7,7 @@ import Card from '@/components/Card';
 import EvolucionFinanciera, { type MonthDatum } from '@/components/EvolucionFinanciera';
 import Logo from '@/components/Logo';
 import { Brand } from '@/constants/brand';
+import { useAgitar } from '@/hooks/use-agitar';
 
 function isSameMonth(iso: string, ref: Date) {
   const d = new Date(iso);
@@ -18,6 +19,10 @@ export default function Inicio() {
   // La fecha de hoy se calcula una sola vez al abrir la pantalla.
   const now = useMemo(() => new Date(), []);
   const moneda = profile?.moneda ?? 'PEN';
+  // Sensor: al agitar el celular se ocultan o muestran los montos (por privacidad en lugares públicos).
+  const [ocultos, setOcultos] = useState(false);
+  useAgitar(() => setOcultos((o) => !o));
+  const monto = (valor: number) => (ocultos ? `${formatMonto(0, moneda).split(' ')[0]} ••••` : formatMonto(valor, moneda));
 
   const { totalIngreso, totalGasto, totalAhorro } = useMemo(() => {
     let ingreso = 0;
@@ -85,6 +90,9 @@ export default function Inicio() {
           <View>
             <Text style={styles.month}>{nombreMes(now)}</Text>
             <Text style={styles.greeting}>Hola, {profile?.apodo || 'invitado'} 👋</Text>
+            <Text style={styles.shakeHint}>
+              {ocultos ? 'Montos ocultos · agita para mostrarlos' : 'Agita el celular para ocultar los montos'}
+            </Text>
           </View>
           <Logo size={70} align="flex-end" />
         </View>
@@ -95,33 +103,33 @@ export default function Inicio() {
               <View style={[styles.dot, { backgroundColor: Brand.ingreso }]} />
               <Text style={styles.statLabel}>INGRESOS</Text>
             </View>
-            <Text style={styles.statValue}>{formatMonto(totalIngreso, moneda)}</Text>
+            <Text style={styles.statValue}>{monto(totalIngreso)}</Text>
           </View>
           <View style={styles.statChip}>
             <View style={styles.statLabelRow}>
               <View style={[styles.dot, { backgroundColor: Brand.pago }]} />
               <Text style={styles.statLabel}>GASTOS</Text>
             </View>
-            <Text style={styles.statValue}>{formatMonto(totalGasto, moneda)}</Text>
+            <Text style={styles.statValue}>{monto(totalGasto)}</Text>
           </View>
           <View style={styles.statChip}>
             <View style={styles.statLabelRow}>
               <View style={[styles.dot, { backgroundColor: Brand.ahorro }]} />
               <Text style={styles.statLabel}>AHORRO</Text>
             </View>
-            <Text style={styles.statValue}>{formatMonto(totalAhorro, moneda)}</Text>
+            <Text style={styles.statValue}>{monto(totalAhorro)}</Text>
           </View>
         </View>
 
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Balance del mes</Text>
           <Text style={[styles.balanceValue, enNegativo && styles.balanceNegative]}>
-            {formatMonto(balance, moneda)}
+            {monto(balance)}
           </Text>
           <Text style={styles.balanceSub}>
             {enNegativo
               ? 'Anotaste más pagos y ahorros que ingresos este mes. Revisa si te falta registrar un ingreso.'
-              : `Disponible tras ${formatMonto(totalGasto, moneda)} en pagos y ${formatMonto(totalAhorro, moneda)} apartados.`}
+              : `Disponible tras ${monto(totalGasto)} en pagos y ${monto(totalAhorro)} apartados.`}
           </Text>
         </View>
 
@@ -150,7 +158,7 @@ export default function Inicio() {
                   </View>
                   <Text style={[styles.movMonto, { color: m.categoria.tipo === 'ingreso' ? Brand.ingreso : Brand.pago }]}>
                     {m.categoria.tipo === 'ingreso' ? '+' : '-'}
-                    {formatMonto(m.monto, moneda)}
+                    {monto(m.monto)}
                   </Text>
                 </View>
               ))}
@@ -169,6 +177,7 @@ const styles = StyleSheet.create({
   noticeText: { fontSize: 12, color: Brand.danger },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   month: { fontSize: 12, color: Brand.textSecondary },
+  shakeHint: { fontSize: 11, color: Brand.textSecondary, marginTop: 4 },
   greeting: { fontSize: 22, fontWeight: '800', color: Brand.textPrimary, marginTop: 2 },
   statsRow: { flexDirection: 'row', gap: 10 },
   statChip: {
