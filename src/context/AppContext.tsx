@@ -31,6 +31,7 @@ export interface Operacion {
   categoria: Categoria;
   monto: number;
   descripcion: string | null;
+  comprobante: string | null; // ruta de la foto del comprobante; null = sin foto
   fecha: string; // ISO
 }
 
