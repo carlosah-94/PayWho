@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Logo from '@/components/Logo';
 import StepDots from '@/components/StepDots';
 import PrimaryButton from '@/components/PrimaryButton';
@@ -37,6 +38,7 @@ export default function RegistroApodo() {
             setApodo(t);
             setError(null);
           }}
+          maxLength={30}
           autoFocus
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
