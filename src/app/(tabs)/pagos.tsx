@@ -1,6 +1,17 @@
 import { useMemo, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CamaraComprobante from '@/components/CamaraComprobante';
 import Card from '@/components/Card';
 import CategoriaInput from '@/components/CategoriaInput';
 import PrimaryButton from '@/components/PrimaryButton';
@@ -23,6 +34,11 @@ export default function Pagos() {
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useAviso();
+  // Comprobante del pago
+  const [fotoNueva, setFotoNueva] = useState<string | null>(null); // foto recién tomada, aún en el celular
+  const [fotoGuardada, setFotoGuardada] = useState<string | null>(null); // foto que ya tenía el pago en edición
+  const [camaraAbierta, setCamaraAbierta] = useState(false);
+  const [viendo, setViendo] = useState<string | null>(null); // enlace del comprobante abierto desde el historial
   const scrollRef = useRef<ScrollView>(null);
 
   const moneda = profile?.moneda ?? 'PEN';
@@ -39,6 +55,8 @@ export default function Pagos() {
     setTipo('');
     setMonto('');
     setEditando(null);
+    setFotoNueva(null);
+    setFotoGuardada(null);
   };
 
   const handleGuardar = async () => {
@@ -58,11 +76,18 @@ export default function Pagos() {
       const categoria =
         categoriaEscrita ?? (await api.createCategoria({ nombre, icon: ICONO_CATEGORIA_NUEVA, tipo: 'pago' }));
 
+      // Si se tomó una foto, primero se sube; su ruta se guarda junto con el pago.
+      const comprobante = fotoNueva ? await api.uploadComprobante(fotoNueva) : fotoGuardada;
+
       if (editando) {
-        await api.updateOperacion(editando.id, { categoriaId: categoria.id, monto: valor });
+        await api.updateOperacion(editando.id, { categoriaId: categoria.id, monto: valor, comprobante });
+        // Si la foto anterior se quitó o se reemplazó, se borra del almacén.
+        if (editando.comprobante && editando.comprobante !== comprobante) {
+          api.deleteComprobante(editando.comprobante).catch(() => {});
+        }
         setAviso('Pago actualizado ✓');
       } else {
-        await api.createOperacion({ categoriaId: categoria.id, monto: valor });
+        await api.createOperacion({ categoriaId: categoria.id, monto: valor, comprobante });
         setAviso('Pago registrado ✓');
       }
       limpiarFormulario();
@@ -75,20 +100,35 @@ export default function Pagos() {
     }
   };
 
+  const handleVerComprobante = async (path: string) => {
+    setError(null);
+    try {
+      // La foto es privada: se pide al servidor un enlace temporal para mostrarla.
+      setViendo(await api.getComprobanteUrl(path));
+    } catch (e) {
+      setError(api.errorMessage(e));
+    }
+  };
+
   const handleEditar = (op: Operacion) => {
     setEditando(op);
     setTipo(op.categoria.nombre);
     setMonto(String(op.monto));
+    setFotoNueva(null);
+    setFotoGuardada(op.comprobante ?? null);
     setError(null);
     setPorEliminar(null);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
-  const handleEliminar = async (id: number) => {
+  const handleEliminar = async (op: Operacion) => {
+    const id = op.id;
     setPorEliminar(null);
     setError(null);
     try {
       await api.deleteOperacion(id);
+      // La foto del comprobante ya no hace falta: se borra del almacén.
+      if (op.comprobante) api.deleteComprobante(op.comprobante).catch(() => {});
       if (editando?.id === id) limpiarFormulario();
       setAviso('Pago eliminado ✓');
     } catch (e) {
@@ -142,6 +182,41 @@ export default function Pagos() {
             editable={!guardando}
           />
 
+          {/* Comprobante: foto tomada con la cámara (opcional). */}
+          {fotoNueva || fotoGuardada ? (
+            <View style={styles.fotoRow}>
+              {fotoNueva ? (
+                <Image source={{ uri: fotoNueva }} style={styles.fotoMini} />
+              ) : (
+                <View style={[styles.fotoMini, styles.fotoMiniVacia]}>
+                  <Text>📷</Text>
+                </View>
+              )}
+              <Text style={styles.fotoTexto}>Comprobante adjunto</Text>
+              <TouchableOpacity onPress={() => setCamaraAbierta(true)} disabled={guardando}>
+                <Text style={Common.action}>Cambiar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  setFotoNueva(null);
+                  setFotoGuardada(null);
+                }}
+                disabled={guardando}
+              >
+                <Text style={Common.actionDanger}>Quitar</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.fotoBoton}
+              onPress={() => setCamaraAbierta(true)}
+              disabled={guardando}
+              accessibilityRole="button"
+            >
+              <Text style={styles.fotoBotonTexto}>📷 Tomar foto del comprobante</Text>
+            </TouchableOpacity>
+          )}
+
           {error ? <Text style={Common.error}>{error}</Text> : null}
           {aviso ? <Text style={Common.aviso}>{aviso}</Text> : null}
 
@@ -170,6 +245,11 @@ export default function Pagos() {
                       {op.categoria.icon} {op.categoria.nombre}
                     </Text>
                     <Text style={Common.rowSub}>{formatFechaHora(op.fecha)}</Text>
+                    {op.comprobante ? (
+                      <TouchableOpacity onPress={() => handleVerComprobante(op.comprobante ?? '')}>
+                        <Text style={styles.verFoto}>📷 Ver comprobante</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                   <Text style={[Common.rowAmount, { color: Brand.pago }]}>-{formatMonto(op.monto, moneda)}</Text>
                 </View>
@@ -177,7 +257,7 @@ export default function Pagos() {
                 {porEliminar === op.id ? (
                   <View style={Common.rowActions}>
                     <Text style={Common.actionMuted}>¿Eliminar este pago?</Text>
-                    <TouchableOpacity onPress={() => handleEliminar(op.id)}>
+                    <TouchableOpacity onPress={() => handleEliminar(op)}>
                       <Text style={Common.actionDanger}>Sí, eliminar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setPorEliminar(null)}>
@@ -199,10 +279,50 @@ export default function Pagos() {
           )}
         </Card>
       </ScrollView>
+
+      <CamaraComprobante
+        visible={camaraAbierta}
+        onCancel={() => setCamaraAbierta(false)}
+        onCapture={(uri) => {
+          setFotoNueva(uri);
+          setCamaraAbierta(false);
+        }}
+      />
+
+      {/* Comprobante de un pago del historial, a pantalla completa. */}
+      <Modal visible={viendo !== null} animationType="fade" onRequestClose={() => setViendo(null)}>
+        <SafeAreaView style={styles.visor}>
+          <TouchableOpacity style={styles.visorCerrar} onPress={() => setViendo(null)} accessibilityRole="button">
+            <Text style={styles.visorCerrarTexto}>Cerrar</Text>
+          </TouchableOpacity>
+          {viendo ? (
+            <Image source={{ uri: viendo }} style={styles.visorFoto} resizeMode="contain" />
+          ) : null}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   totalCard: { backgroundColor: Brand.pagoTint },
+  fotoBoton: {
+    borderWidth: 1,
+    borderColor: Brand.border,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  fotoBotonTexto: { fontSize: 13, fontWeight: '600', color: Brand.textSecondary },
+  fotoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  fotoMini: { width: 44, height: 44, borderRadius: 8, backgroundColor: Brand.border },
+  fotoMiniVacia: { alignItems: 'center', justifyContent: 'center' },
+  fotoTexto: { flex: 1, fontSize: 13, color: Brand.textPrimary },
+  verFoto: { fontSize: 11, fontWeight: '600', color: Brand.ahorro, marginTop: 4 },
+  visor: { flex: 1, backgroundColor: '#000000' },
+  visorCerrar: { alignSelf: 'flex-end', padding: 16 },
+  visorCerrarTexto: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  visorFoto: { flex: 1 },
 });
