@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Image,
+  Linking,
   Modal,
   RefreshControl,
   ScrollView,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CamaraComprobante from '@/components/CamaraComprobante';
 import Card from '@/components/Card';
+import UbicacionInput, { urlMapa, type Coordenadas } from '@/components/UbicacionInput';
 import CategoriaInput from '@/components/CategoriaInput';
 import PrimaryButton from '@/components/PrimaryButton';
 import { Brand } from '@/constants/brand';
@@ -39,6 +41,7 @@ export default function Pagos() {
   const [fotoGuardada, setFotoGuardada] = useState<string | null>(null); // foto que ya tenía el pago en edición
   const [camaraAbierta, setCamaraAbierta] = useState(false);
   const [viendo, setViendo] = useState<string | null>(null); // enlace del comprobante abierto desde el historial
+  const [ubicacion, setUbicacion] = useState<Coordenadas | null>(null); // GPS del pago
   const scrollRef = useRef<ScrollView>(null);
 
   const moneda = profile?.moneda ?? 'PEN';
@@ -57,6 +60,7 @@ export default function Pagos() {
     setEditando(null);
     setFotoNueva(null);
     setFotoGuardada(null);
+    setUbicacion(null);
   };
 
   const handleGuardar = async () => {
@@ -78,16 +82,17 @@ export default function Pagos() {
 
       // Si se tomó una foto, primero se sube; su ruta se guarda junto con el pago.
       const comprobante = fotoNueva ? await api.uploadComprobante(fotoNueva) : fotoGuardada;
+      const coords = { latitud: ubicacion?.latitud ?? null, longitud: ubicacion?.longitud ?? null };
 
       if (editando) {
-        await api.updateOperacion(editando.id, { categoriaId: categoria.id, monto: valor, comprobante });
+        await api.updateOperacion(editando.id, { categoriaId: categoria.id, monto: valor, comprobante, ...coords });
         // Si la foto anterior se quitó o se reemplazó, se borra del almacén.
         if (editando.comprobante && editando.comprobante !== comprobante) {
           api.deleteComprobante(editando.comprobante).catch(() => {});
         }
         setAviso('Pago actualizado ✓');
       } else {
-        await api.createOperacion({ categoriaId: categoria.id, monto: valor, comprobante });
+        await api.createOperacion({ categoriaId: categoria.id, monto: valor, comprobante, ...coords });
         setAviso('Pago registrado ✓');
       }
       limpiarFormulario();
@@ -116,6 +121,7 @@ export default function Pagos() {
     setMonto(String(op.monto));
     setFotoNueva(null);
     setFotoGuardada(op.comprobante ?? null);
+    setUbicacion(op.latitud !== null && op.longitud !== null ? { latitud: op.latitud, longitud: op.longitud } : null);
     setError(null);
     setPorEliminar(null);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -217,6 +223,9 @@ export default function Pagos() {
             </TouchableOpacity>
           )}
 
+          {/* Ubicación (GPS) donde se hizo el pago (opcional). */}
+          <UbicacionInput value={ubicacion} onChange={setUbicacion} disabled={guardando} />
+
           {error ? <Text style={Common.error}>{error}</Text> : null}
           {aviso ? <Text style={Common.aviso}>{aviso}</Text> : null}
 
@@ -248,6 +257,13 @@ export default function Pagos() {
                     {op.comprobante ? (
                       <TouchableOpacity onPress={() => handleVerComprobante(op.comprobante ?? '')}>
                         <Text style={styles.verFoto}>📷 Ver comprobante</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {op.latitud !== null && op.longitud !== null ? (
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(urlMapa({ latitud: op.latitud ?? 0, longitud: op.longitud ?? 0 }))}
+                      >
+                        <Text style={styles.verFoto}>📍 Ver ubicación</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
