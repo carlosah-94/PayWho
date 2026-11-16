@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import * as api from '@/services/api';
 import type { Session } from '@/services/api';
 import { limpiarNotificaciones } from '@/services/notificaciones';
+import { logger } from '@/utils/logger';
 
 export type Moneda = 'PEN' | 'USD' | 'EUR';
 
@@ -100,7 +101,7 @@ async function readStored<T>(key: string): Promise<T | null> {
     const raw = await AsyncStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : null;
   } catch (e) {
-    console.warn('No se pudo cargar el almacenamiento local', e);
+    logger.warn('almacenamiento', `No se pudo leer ${key} del celular`, e);
     return null;
   }
 }
@@ -110,7 +111,7 @@ async function store(key: string, value: unknown) {
     if (value === null) await AsyncStorage.removeItem(key);
     else await AsyncStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
-    console.warn('No se pudo guardar el almacenamiento local', e);
+    logger.warn('almacenamiento', `No se pudo guardar ${key} en el celular`, e);
   }
 }
 
