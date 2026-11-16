@@ -3,6 +3,10 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { Brand } from '@/constants/brand';
+import PantallaError from '@/components/PantallaError';
+
+// Expo Router usa este componente si alguna pantalla falla al dibujarse: la app no se cierra.
+export const ErrorBoundary = PantallaError;
 
 function RootNavigator() {
   const { loading, session, profile } = useApp();
