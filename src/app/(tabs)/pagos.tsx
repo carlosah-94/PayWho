@@ -1,10 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Image,
   Linking,
   Modal,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +15,7 @@ import CamaraComprobante from '@/components/CamaraComprobante';
 import Card from '@/components/Card';
 import UbicacionInput, { urlMapa, type Coordenadas } from '@/components/UbicacionInput';
 import CategoriaInput from '@/components/CategoriaInput';
+import ListaEnTarjeta from '@/components/ListaEnTarjeta';
 import PrimaryButton from '@/components/PrimaryButton';
 import { Brand } from '@/constants/brand';
 import { Common } from '@/constants/styles';
@@ -42,7 +42,7 @@ export default function Pagos() {
   const [camaraAbierta, setCamaraAbierta] = useState(false);
   const [viendo, setViendo] = useState<string | null>(null); // enlace del comprobante abierto desde el historial
   const [ubicacion, setUbicacion] = useState<Coordenadas | null>(null); // GPS del pago
-  const scrollRef = useRef<ScrollView>(null);
+  const listaRef = useRef<FlatList<Operacion>>(null);
 
   const moneda = profile?.moneda ?? 'PEN';
   const nombre = tipo.trim();
@@ -124,7 +124,7 @@ export default function Pagos() {
     setUbicacion(op.latitud !== null && op.longitud !== null ? { latitud: op.latitud, longitud: op.longitud } : null);
     setError(null);
     setPorEliminar(null);
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    listaRef.current?.scrollToOffset({ offset: 0, animated: true }); // sube al formulario
   };
 
   const handleEliminar = async (op: Operacion) => {
@@ -145,156 +145,154 @@ export default function Pagos() {
 
   return (
     <SafeAreaView style={Common.container} edges={['top']}>
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={Common.scroll}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={syncing} onRefresh={refreshData} tintColor={Brand.primary} />}
-      >
-        <Text style={Common.title}>Pagos</Text>
+      <ListaEnTarjeta
+        listaRef={listaRef}
+        datos={pagos}
+        titulo={`Historial (${pagos.length})`}
+        vacio="Sin pagos registrados."
+        extraData={[porEliminar, guardando, moneda]}
+        refreshing={syncing}
+        onRefresh={refreshData}
+        encabezado={
+          <>
+            <Text style={Common.title}>Pagos</Text>
 
-        <View style={[Common.totalCard, styles.totalCard]}>
-          <Text style={[Common.totalLabel, { color: Brand.pago }]}>TOTAL GASTADO</Text>
-          <Text style={Common.totalValue}>{formatMonto(total, moneda)}</Text>
-        </View>
-
-        <Card>
-          <Text style={Common.cardTitle}>{editando ? 'Editar pago' : 'Nuevo pago'}</Text>
-          {/* Se puede escribir la categoría o elegirla de la lista que abre la flecha. */}
-          <CategoriaInput
-            value={tipo}
-            onChangeText={(t) => {
-              setTipo(t);
-              setError(null);
-            }}
-            categorias={categoriasPago}
-            placeholder="Tipo (ej. Alquiler, Comida)"
-            disabled={guardando}
-          />
-          {nombre && !categoriaEscrita ? (
-            <Text style={Common.hint}>Se creará la categoría “{nombre}”.</Text>
-          ) : null}
-
-          <TextInput
-            style={Common.input}
-            placeholder="Monto"
-            placeholderTextColor="#9AA1AC"
-            value={monto}
-            onChangeText={(t) => {
-              setMonto(t);
-              setError(null);
-            }}
-            keyboardType="decimal-pad"
-            editable={!guardando}
-          />
-
-          {/* Comprobante: foto tomada con la cámara (opcional). */}
-          {fotoNueva || fotoGuardada ? (
-            <View style={styles.fotoRow}>
-              {fotoNueva ? (
-                <Image source={{ uri: fotoNueva }} style={styles.fotoMini} />
-              ) : (
-                <View style={[styles.fotoMini, styles.fotoMiniVacia]}>
-                  <Text>📷</Text>
-                </View>
-              )}
-              <Text style={styles.fotoTexto}>Comprobante adjunto</Text>
-              <TouchableOpacity onPress={() => setCamaraAbierta(true)} disabled={guardando}>
-                <Text style={Common.action}>Cambiar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setFotoNueva(null);
-                  setFotoGuardada(null);
-                }}
-                disabled={guardando}
-              >
-                <Text style={Common.actionDanger}>Quitar</Text>
-              </TouchableOpacity>
+            <View style={[Common.totalCard, styles.totalCard]}>
+              <Text style={[Common.totalLabel, { color: Brand.pago }]}>TOTAL GASTADO</Text>
+              <Text style={Common.totalValue}>{formatMonto(total, moneda)}</Text>
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.fotoBoton}
-              onPress={() => setCamaraAbierta(true)}
-              disabled={guardando}
-              accessibilityRole="button"
-            >
-              <Text style={styles.fotoBotonTexto}>📷 Tomar foto del comprobante</Text>
-            </TouchableOpacity>
-          )}
 
-          {/* Ubicación (GPS) donde se hizo el pago (opcional). */}
-          <UbicacionInput value={ubicacion} onChange={setUbicacion} disabled={guardando} />
+            <Card>
+              <Text style={Common.cardTitle}>{editando ? 'Editar pago' : 'Nuevo pago'}</Text>
+              {/* Se puede escribir la categoría o elegirla de la lista que abre la flecha. */}
+              <CategoriaInput
+                value={tipo}
+                onChangeText={(t) => {
+                  setTipo(t);
+                  setError(null);
+                }}
+                categorias={categoriasPago}
+                placeholder="Tipo (ej. Alquiler, Comida)"
+                disabled={guardando}
+              />
+              {nombre && !categoriaEscrita ? (
+                <Text style={Common.hint}>Se creará la categoría “{nombre}”.</Text>
+              ) : null}
 
-          {error ? <Text style={Common.error}>{error}</Text> : null}
-          {aviso ? <Text style={Common.aviso}>{aviso}</Text> : null}
+              <TextInput
+                style={Common.input}
+                placeholder="Monto"
+                placeholderTextColor="#9AA1AC"
+                value={monto}
+                onChangeText={(t) => {
+                  setMonto(t);
+                  setError(null);
+                }}
+                keyboardType="decimal-pad"
+                editable={!guardando}
+              />
 
-          <PrimaryButton
-            title={editando ? 'Guardar cambios' : 'Registrar pago'}
-            onPress={handleGuardar}
-            loading={guardando}
-          />
-          {editando ? (
-            <TouchableOpacity style={Common.link} onPress={limpiarFormulario} disabled={guardando}>
-              <Text style={Common.linkText}>Cancelar edición</Text>
-            </TouchableOpacity>
-          ) : null}
-        </Card>
-
-        <Card>
-          <Text style={Common.cardTitle}>Historial ({pagos.length})</Text>
-          {pagos.length === 0 ? (
-            <Text style={[Common.empty, Common.row]}>Sin pagos registrados.</Text>
-          ) : (
-            pagos.map((op) => (
-              <View key={op.id} style={Common.row}>
-                <View style={Common.rowTop}>
-                  <View style={Common.rowMain}>
-                    <Text style={Common.rowTitle}>
-                      {op.categoria.icon} {op.categoria.nombre}
-                    </Text>
-                    <Text style={Common.rowSub}>{formatFechaHora(op.fecha)}</Text>
-                    {op.comprobante ? (
-                      <TouchableOpacity onPress={() => handleVerComprobante(op.comprobante ?? '')}>
-                        <Text style={styles.verFoto}>📷 Ver comprobante</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                    {op.latitud !== null && op.longitud !== null ? (
-                      <TouchableOpacity
-                        onPress={() => Linking.openURL(urlMapa({ latitud: op.latitud ?? 0, longitud: op.longitud ?? 0 }))}
-                      >
-                        <Text style={styles.verFoto}>📍 Ver ubicación</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                  <Text style={[Common.rowAmount, { color: Brand.pago }]}>-{formatMonto(op.monto, moneda)}</Text>
+              {/* Comprobante: foto tomada con la cámara (opcional). */}
+              {fotoNueva || fotoGuardada ? (
+                <View style={styles.fotoRow}>
+                  {fotoNueva ? (
+                    <Image source={{ uri: fotoNueva }} style={styles.fotoMini} />
+                  ) : (
+                    <View style={[styles.fotoMini, styles.fotoMiniVacia]}>
+                      <Text>📷</Text>
+                    </View>
+                  )}
+                  <Text style={styles.fotoTexto}>Comprobante adjunto</Text>
+                  <TouchableOpacity onPress={() => setCamaraAbierta(true)} disabled={guardando}>
+                    <Text style={Common.action}>Cambiar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setFotoNueva(null);
+                      setFotoGuardada(null);
+                    }}
+                    disabled={guardando}
+                  >
+                    <Text style={Common.actionDanger}>Quitar</Text>
+                  </TouchableOpacity>
                 </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.fotoBoton}
+                  onPress={() => setCamaraAbierta(true)}
+                  disabled={guardando}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.fotoBotonTexto}>📷 Tomar foto del comprobante</Text>
+                </TouchableOpacity>
+              )}
 
-                {porEliminar === op.id ? (
-                  <View style={Common.rowActions}>
-                    <Text style={Common.actionMuted}>¿Eliminar este pago?</Text>
-                    <TouchableOpacity onPress={() => handleEliminar(op)}>
-                      <Text style={Common.actionDanger}>Sí, eliminar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setPorEliminar(null)}>
-                      <Text style={Common.action}>No</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View style={Common.rowActions}>
-                    <TouchableOpacity onPress={() => handleEditar(op)} disabled={guardando}>
-                      <Text style={Common.action}>Editar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setPorEliminar(op.id)} disabled={guardando}>
-                      <Text style={Common.actionDanger}>Eliminar</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+              {/* Ubicación (GPS) donde se hizo el pago (opcional). */}
+              <UbicacionInput value={ubicacion} onChange={setUbicacion} disabled={guardando} />
+
+              {error ? <Text style={Common.error}>{error}</Text> : null}
+              {aviso ? <Text style={Common.aviso}>{aviso}</Text> : null}
+
+              <PrimaryButton
+                title={editando ? 'Guardar cambios' : 'Registrar pago'}
+                onPress={handleGuardar}
+                loading={guardando}
+              />
+              {editando ? (
+                <TouchableOpacity style={Common.link} onPress={limpiarFormulario} disabled={guardando}>
+                  <Text style={Common.linkText}>Cancelar edición</Text>
+                </TouchableOpacity>
+              ) : null}
+            </Card>
+          </>
+        }
+        renderFila={(op) => (
+          <View style={Common.row}>
+            <View style={Common.rowTop}>
+              <View style={Common.rowMain}>
+                <Text style={Common.rowTitle}>
+                  {op.categoria.icon} {op.categoria.nombre}
+                </Text>
+                <Text style={Common.rowSub}>{formatFechaHora(op.fecha)}</Text>
+                {op.comprobante ? (
+                  <TouchableOpacity onPress={() => handleVerComprobante(op.comprobante ?? '')}>
+                    <Text style={styles.verFoto}>📷 Ver comprobante</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {op.latitud !== null && op.longitud !== null ? (
+                  <TouchableOpacity
+                    onPress={() => Linking.openURL(urlMapa({ latitud: op.latitud ?? 0, longitud: op.longitud ?? 0 }))}
+                  >
+                    <Text style={styles.verFoto}>📍 Ver ubicación</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
-            ))
-          )}
-        </Card>
-      </ScrollView>
+              <Text style={[Common.rowAmount, { color: Brand.pago }]}>-{formatMonto(op.monto, moneda)}</Text>
+            </View>
+
+            {porEliminar === op.id ? (
+              <View style={Common.rowActions}>
+                <Text style={Common.actionMuted}>¿Eliminar este pago?</Text>
+                <TouchableOpacity onPress={() => handleEliminar(op)}>
+                  <Text style={Common.actionDanger}>Sí, eliminar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setPorEliminar(null)}>
+                  <Text style={Common.action}>No</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={Common.rowActions}>
+                <TouchableOpacity onPress={() => handleEditar(op)} disabled={guardando}>
+                  <Text style={Common.action}>Editar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setPorEliminar(op.id)} disabled={guardando}>
+                  <Text style={Common.actionDanger}>Eliminar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+      />
 
       <CamaraComprobante
         visible={camaraAbierta}
