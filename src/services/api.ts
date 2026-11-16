@@ -17,6 +17,8 @@ import type {
   Profile,
   TipoOperacion,
 } from '@/context/AppContext';
+import { File } from 'expo-file-system';
+import { logger } from '@/utils/logger';
 
 const BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const API_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
@@ -110,6 +112,8 @@ interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   auth?: boolean; // false = petición sin usuario (crear cuenta, iniciar sesión)
+  file?: Blob; // archivo a subir (se envía tal cual, en lugar de un body en JSON)
+  timeoutMs?: number;
 }
 
 async function send(path: string, options: RequestOptions) {
@@ -117,26 +121,25 @@ async function send(path: string, options: RequestOptions) {
     throw new ApiError('Falta configurar el archivo .env con la dirección y la llave de Supabase.', 0);
   }
 
-  const headers: Record<string, string> = {
-    apikey: API_KEY,
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  const headers: Record<string, string> = { apikey: API_KEY, ...options.headers };
+  // Solo se declara JSON cuando hay un cuerpo que enviar (Storage rechaza un DELETE vacío marcado como JSON).
+  if (!options.file && options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (options.auth !== false && currentSession) {
     headers.Authorization = `Bearer ${currentSession.accessToken}`;
   }
 
   // Si el servidor no responde en 10 segundos, se cancela la petición.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? TIMEOUT_MS);
   try {
     return await fetch(`${BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.file ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
       signal: controller.signal,
     });
-  } catch {
+  } catch (e) {
+    logger.warn('api', `${options.method ?? 'GET'} ${path} no obtuvo respuesta`, e);
     throw new ApiError('No hay conexión con el servidor. Revisa tu internet e inténtalo de nuevo.', 0);
   } finally {
     clearTimeout(timer);
@@ -173,7 +176,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   const body = await readBody(response);
-  if (!response.ok) throw toApiError(response.status, body);
+  if (!response.ok) {
+    logger.warn('api', `${options.method ?? 'GET'} ${path} respondió ${response.status}`, body);
+    throw toApiError(response.status, body);
+  }
   return body as T;
 }
 
@@ -404,6 +410,9 @@ interface OperacionRow {
   id: number;
   monto: number;
   descripcion: string | null;
+  comprobante: string | null;
+  latitud: number | null;
+  longitud: number | null;
   fecha: string;
   categoria: CategoriaRow;
 }
@@ -412,11 +421,14 @@ export interface OperacionInput {
   categoriaId: number;
   monto: number;
   descripcion?: string | null;
+  comprobante?: string | null; // ruta de la foto devuelta por uploadComprobante
+  latitud?: number | null; // ubicación (GPS) donde se registró
+  longitud?: number | null;
   fecha?: string;
 }
 
 // Cada operación llega junto con su categoría: de ahí sale si es ingreso o pago.
-const OPERACION_COLUMNS = `id,monto,descripcion,fecha,categoria:categoria_operacion(${CATEGORIA_COLUMNS})`;
+const OPERACION_COLUMNS = `id,monto,descripcion,comprobante,latitud,longitud,fecha,categoria:categoria_operacion(${CATEGORIA_COLUMNS})`;
 
 function toOperacion(row: OperacionRow): Operacion {
   return {
@@ -424,6 +436,9 @@ function toOperacion(row: OperacionRow): Operacion {
     categoria: toCategoria(row.categoria),
     monto: Number(row.monto),
     descripcion: row.descripcion,
+    comprobante: row.comprobante,
+    latitud: row.latitud === null ? null : Number(row.latitud),
+    longitud: row.longitud === null ? null : Number(row.longitud),
     fecha: row.fecha,
   };
 }
@@ -434,6 +449,9 @@ function toOperacionRow(input: Partial<OperacionInput>) {
     categoria_id: input.categoriaId,
     monto: input.monto,
     descripcion: input.descripcion,
+    comprobante: input.comprobante,
+    latitud: input.latitud,
+    longitud: input.longitud,
     fecha: input.fecha,
   };
 }
@@ -578,4 +596,44 @@ export async function updateAhorro(id: number, changes: Partial<AhorroInput>) {
 /** DELETE: elimina un ahorro. */
 export function deleteAhorro(id: number) {
   return deleteRow('ahorro', id);
+}
+
+// ---------------------------------------------------------------------------
+// Fotos de comprobantes (Supabase Storage)
+// ---------------------------------------------------------------------------
+
+const BUCKET = 'comprobantes';
+const UPLOAD_TIMEOUT_MS = 30000; // una foto tarda más que una petición normal
+
+/**
+ * POST: sube la foto tomada con la cámara y devuelve su ruta dentro del almacén.
+ * Cada usuario guarda sus fotos en una carpeta con su propio id.
+ */
+export async function uploadComprobante(localUri: string) {
+  const path = `${currentSession?.userId}/${Date.now()}.jpg`;
+  await request<unknown>(`/storage/v1/object/${BUCKET}/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/jpeg' },
+    file: new File(localUri), // la foto guardada en el celular, leída como archivo
+    timeoutMs: UPLOAD_TIMEOUT_MS,
+  });
+  return path;
+}
+
+/** DELETE: borra una foto del almacén. */
+export async function deleteComprobante(path: string) {
+  // Se envía la lista de archivos en el cuerpo, como lo hace la librería oficial de Supabase.
+  await request<unknown>(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', body: { prefixes: [path] } });
+}
+
+/**
+ * POST: pide un enlace temporal (válido 1 hora) para mostrar una foto con <Image>.
+ * Las fotos son privadas: sin ese enlace, el servidor no las entrega.
+ */
+export async function getComprobanteUrl(path: string) {
+  const data = await request<{ signedURL: string }>(`/storage/v1/object/sign/${BUCKET}/${path}`, {
+    method: 'POST',
+    body: { expiresIn: 3600 },
+  });
+  return `${BASE_URL}/storage/v1${data.signedURL}`;
 }

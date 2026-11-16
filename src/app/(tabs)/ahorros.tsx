@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Card from '@/components/Card';
+import ListaEnTarjeta from '@/components/ListaEnTarjeta';
 import PrimaryButton from '@/components/PrimaryButton';
 import { Brand } from '@/constants/brand';
 import { Common } from '@/constants/styles';
 import { useApp, type Ahorro, type EstadoMeta, type MetaAhorro } from '@/context/AppContext';
 import { useAviso } from '@/hooks/use-aviso';
 import * as api from '@/services/api';
+import * as notificaciones from '@/services/notificaciones';
 import { formatFechaHora, formatMonto, parseMonto } from '@/utils/format';
 
 type Seccion = 'meta' | 'deposito' | 'lista';
@@ -140,6 +142,8 @@ export default function Ahorros() {
         const estado = estadoSegunAhorro(meta, (ahorradoPorMeta.get(meta.id) ?? 0) + valor);
         if (estado !== meta.estado) await api.updateMeta(meta.id, { estado });
         completada = estado === 'completada';
+        // Notificación local: avisa que la meta se acaba de completar con este ahorro.
+        if (completada && meta.estado !== 'completada') notificaciones.avisarMetaCompletada(meta.nombre);
       }
       setAviso(completada && meta ? `¡Meta “${meta.nombre}” completada! 🎉` : 'Ahorro registrado ✓');
       setMonto('');
@@ -172,223 +176,221 @@ export default function Ahorros() {
 
   return (
     <SafeAreaView style={Common.container} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={Common.scroll}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={syncing} onRefresh={refreshData} tintColor={Brand.primary} />}
-      >
-        <Text style={Common.title}>Ahorros</Text>
+      <ListaEnTarjeta
+        datos={ahorros}
+        titulo={`Movimientos (${ahorros.length})`}
+        extraTitulo={error?.en === 'lista' ? <Text style={Common.error}>{error.texto}</Text> : null}
+        vacio="Sin movimientos aún."
+        extraData={[porEliminar, ocupado, moneda, metas]}
+        refreshing={syncing}
+        onRefresh={refreshData}
+        encabezado={
+          <>
+            <Text style={Common.title}>Ahorros</Text>
 
-        <View style={[Common.totalCard, styles.totalCard]}>
-          <Text style={[Common.totalLabel, styles.totalLabel]}>TOTAL AHORRADO</Text>
-          <Text style={[Common.totalValue, styles.totalValue]}>{formatMonto(total, moneda)}</Text>
-        </View>
-
-        {aviso ? <Text style={[Common.aviso, styles.avisoTop]}>{aviso}</Text> : null}
-
-        <Card>
-          <View style={styles.cardHeader}>
-            <Text style={[Common.cardTitle, styles.cardTitleInline]}>Metas de ahorro</Text>
-            <TouchableOpacity style={styles.newBtn} onPress={handleNuevaMeta} disabled={ocupado}>
-              <Text style={styles.newBtnText}>{formMeta ? 'Cerrar' : '+ Nueva meta'}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {formMeta ? (
-            <View style={styles.metaForm}>
-              <TextInput
-                style={Common.input}
-                placeholder="Nombre de la meta (ej. Viaje)"
-                placeholderTextColor="#9AA1AC"
-                value={metaNombre}
-                onChangeText={(t) => {
-                  setMetaNombre(t);
-                  setError(null);
-                }}
-                maxLength={40}
-                editable={!ocupado}
-              />
-              <TextInput
-                style={Common.input}
-                placeholder="Monto objetivo"
-                placeholderTextColor="#9AA1AC"
-                value={metaMonto}
-                onChangeText={(t) => {
-                  setMetaMonto(t);
-                  setError(null);
-                }}
-                keyboardType="decimal-pad"
-                editable={!ocupado}
-              />
-              <PrimaryButton
-                title={metaEditando ? 'Guardar cambios' : 'Crear meta'}
-                variant="ahorro"
-                onPress={handleGuardarMeta}
-                disabled={ocupado}
-                loading={guardando === 'meta'}
-              />
+            <View style={[Common.totalCard, styles.totalCard]}>
+              <Text style={[Common.totalLabel, styles.totalLabel]}>TOTAL AHORRADO</Text>
+              <Text style={[Common.totalValue, styles.totalValue]}>{formatMonto(total, moneda)}</Text>
             </View>
-          ) : null}
-          {error?.en === 'meta' ? <Text style={[Common.error, styles.errorSpaced]}>{error.texto}</Text> : null}
 
-          {metas.length === 0 ? (
-            <Text style={[Common.empty, Common.row]}>Sin metas aún.</Text>
-          ) : (
-            metas.map((meta) => {
-              const ahorrado = ahorradoPorMeta.get(meta.id) ?? 0;
-              const avance = Math.min(100, (ahorrado / meta.meta) * 100);
-              const completada = meta.estado === 'completada';
-              return (
-                <View key={meta.id} style={Common.row}>
-                  <View style={Common.rowTop}>
-                    <View style={Common.rowMain}>
-                      <Text style={Common.rowTitle}>
-                        {meta.icon} {meta.nombre}
-                      </Text>
-                      <Text style={Common.rowSub}>
-                        {formatMonto(ahorrado, moneda)} de {formatMonto(meta.meta, moneda)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.badge, completada && styles.badgeDone]}>
-                      {completada ? 'Completada ✓' : `${Math.floor(avance)}%`}
-                    </Text>
-                  </View>
-                  <View style={styles.track}>
-                    <View
-                      style={[
-                        styles.fill,
-                        { width: `${avance}%`, backgroundColor: completada ? Brand.ingreso : Brand.ahorro },
-                      ]}
-                    />
-                  </View>
+            {aviso ? <Text style={[Common.aviso, styles.avisoTop]}>{aviso}</Text> : null}
 
-                  {porEliminar === `meta-${meta.id}` ? (
-                    <View style={Common.rowActions}>
-                      <Text style={Common.actionMuted}>¿Eliminar esta meta?</Text>
-                      <TouchableOpacity onPress={() => handleEliminarMeta(meta)}>
-                        <Text style={Common.actionDanger}>Sí, eliminar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setPorEliminar(null)}>
-                        <Text style={Common.action}>No</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <View style={Common.rowActions}>
-                      <TouchableOpacity onPress={() => handleEditarMeta(meta)} disabled={ocupado}>
-                        <Text style={Common.action}>Editar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setPorEliminar(`meta-${meta.id}`)} disabled={ocupado}>
-                        <Text style={Common.actionDanger}>Eliminar</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              );
-            })
-          )}
-        </Card>
-
-        <Card>
-          <Text style={Common.cardTitle}>Depósito manual</Text>
-          <View style={styles.depositRow}>
-            <TextInput
-              style={[Common.input, styles.depositInput]}
-              placeholder="Monto a ahorrar"
-              placeholderTextColor="#9AA1AC"
-              value={monto}
-              onChangeText={(t) => {
-                setMonto(t);
-                setError(null);
-              }}
-              keyboardType="decimal-pad"
-              editable={!ocupado}
-            />
-            <View style={styles.depositBtn}>
-              <PrimaryButton title="Ahorrar" variant="ahorro" onPress={handleAhorrar} loading={guardando === 'deposito'} disabled={ocupado} />
-            </View>
-          </View>
-
-          {metasActivas.length > 0 ? (
-            <>
-              <Text style={Common.hint}>¿A dónde va este ahorro?</Text>
-              <View style={Common.chips}>
-                <TouchableOpacity
-                  style={[Common.chip, destino === null && Common.chipSelected]}
-                  onPress={() => setDestino(null)}
-                  disabled={ocupado}
-                >
-                  <Text style={[Common.chipText, destino === null && Common.chipTextSelected]}>General</Text>
+            <Card>
+              <View style={styles.cardHeader}>
+                <Text style={[Common.cardTitle, styles.cardTitleInline]}>Metas de ahorro</Text>
+                <TouchableOpacity style={styles.newBtn} onPress={handleNuevaMeta} disabled={ocupado}>
+                  <Text style={styles.newBtnText}>{formMeta ? 'Cerrar' : '+ Nueva meta'}</Text>
                 </TouchableOpacity>
-                {metasActivas.map((meta) => {
-                  const selected = destino === meta.id;
+              </View>
+
+              {formMeta ? (
+                <View style={styles.metaForm}>
+                  <TextInput
+                    style={Common.input}
+                    placeholder="Nombre de la meta (ej. Viaje)"
+                    placeholderTextColor="#9AA1AC"
+                    value={metaNombre}
+                    onChangeText={(t) => {
+                      setMetaNombre(t);
+                      setError(null);
+                    }}
+                    maxLength={40}
+                    editable={!ocupado}
+                  />
+                  <TextInput
+                    style={Common.input}
+                    placeholder="Monto objetivo"
+                    placeholderTextColor="#9AA1AC"
+                    value={metaMonto}
+                    onChangeText={(t) => {
+                      setMetaMonto(t);
+                      setError(null);
+                    }}
+                    keyboardType="decimal-pad"
+                    editable={!ocupado}
+                  />
+                  <PrimaryButton
+                    title={metaEditando ? 'Guardar cambios' : 'Crear meta'}
+                    variant="ahorro"
+                    onPress={handleGuardarMeta}
+                    disabled={ocupado}
+                    loading={guardando === 'meta'}
+                  />
+                </View>
+              ) : null}
+              {error?.en === 'meta' ? <Text style={[Common.error, styles.errorSpaced]}>{error.texto}</Text> : null}
+
+              {metas.length === 0 ? (
+                <Text style={[Common.empty, Common.row]}>Sin metas aún.</Text>
+              ) : (
+                metas.map((meta) => {
+                  const ahorrado = ahorradoPorMeta.get(meta.id) ?? 0;
+                  const avance = Math.min(100, (ahorrado / meta.meta) * 100);
+                  const completada = meta.estado === 'completada';
                   return (
+                    <View key={meta.id} style={Common.row}>
+                      <View style={Common.rowTop}>
+                        <View style={Common.rowMain}>
+                          <Text style={Common.rowTitle}>
+                            {meta.icon} {meta.nombre}
+                          </Text>
+                          <Text style={Common.rowSub}>
+                            {formatMonto(ahorrado, moneda)} de {formatMonto(meta.meta, moneda)}
+                          </Text>
+                        </View>
+                        <Text style={[styles.badge, completada && styles.badgeDone]}>
+                          {completada ? 'Completada ✓' : `${Math.floor(avance)}%`}
+                        </Text>
+                      </View>
+                      <View style={styles.track}>
+                        <View
+                          style={[
+                            styles.fill,
+                            { width: `${avance}%`, backgroundColor: completada ? Brand.ingreso : Brand.ahorro },
+                          ]}
+                        />
+                      </View>
+
+                      {porEliminar === `meta-${meta.id}` ? (
+                        <View style={Common.rowActions}>
+                          <Text style={Common.actionMuted}>¿Eliminar esta meta?</Text>
+                          <TouchableOpacity onPress={() => handleEliminarMeta(meta)}>
+                            <Text style={Common.actionDanger}>Sí, eliminar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setPorEliminar(null)}>
+                            <Text style={Common.action}>No</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={Common.rowActions}>
+                          <TouchableOpacity onPress={() => handleEditarMeta(meta)} disabled={ocupado}>
+                            <Text style={Common.action}>Editar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setPorEliminar(`meta-${meta.id}`)} disabled={ocupado}>
+                            <Text style={Common.actionDanger}>Eliminar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </Card>
+
+            <Card>
+              <Text style={Common.cardTitle}>Depósito manual</Text>
+              <View style={styles.depositRow}>
+                <TextInput
+                  style={[Common.input, styles.depositInput]}
+                  placeholder="Monto a ahorrar"
+                  placeholderTextColor="#9AA1AC"
+                  value={monto}
+                  onChangeText={(t) => {
+                    setMonto(t);
+                    setError(null);
+                  }}
+                  keyboardType="decimal-pad"
+                  editable={!ocupado}
+                />
+                <View style={styles.depositBtn}>
+                  <PrimaryButton title="Ahorrar" variant="ahorro" onPress={handleAhorrar} loading={guardando === 'deposito'} disabled={ocupado} />
+                </View>
+              </View>
+
+              {metasActivas.length > 0 ? (
+                <>
+                  <Text style={Common.hint}>¿A dónde va este ahorro?</Text>
+                  <View style={Common.chips}>
                     <TouchableOpacity
-                      key={meta.id}
-                      style={[Common.chip, selected && Common.chipSelected]}
-                      onPress={() => setDestino(meta.id)}
+                      style={[Common.chip, destino === null && Common.chipSelected]}
+                      onPress={() => setDestino(null)}
                       disabled={ocupado}
                     >
-                      <Text style={[Common.chipText, selected && Common.chipTextSelected]}>
-                        {meta.icon} {meta.nombre}
-                      </Text>
+                      <Text style={[Common.chipText, destino === null && Common.chipTextSelected]}>General</Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </>
-          ) : null}
-          {error?.en === 'deposito' ? <Text style={Common.error}>{error.texto}</Text> : null}
-        </Card>
-
-        <Card>
-          <Text style={Common.cardTitle}>Movimientos ({ahorros.length})</Text>
-          {error?.en === 'lista' ? <Text style={Common.error}>{error.texto}</Text> : null}
-          {ahorros.length === 0 ? (
-            <Text style={[Common.empty, Common.row]}>Sin movimientos aún.</Text>
-          ) : (
-            ahorros.map((a) => {
-              const automatico = a.operacionId !== null;
-              const meta = metas.find((m) => m.id === a.metaId);
-              return (
-                <View key={a.id} style={Common.row}>
-                  <View style={Common.rowTop}>
-                    <View style={Common.rowMain}>
-                      <Text style={Common.rowTitle}>
-                        {automatico ? `Automático · ${a.porcentaje}%` : 'Manual'}
-                        {meta ? ` → ${meta.nombre}` : ''}
-                      </Text>
-                      <Text style={Common.rowSub}>{formatFechaHora(a.fecha)}</Text>
-                    </View>
-                    <Text style={[Common.rowAmount, { color: Brand.ahorro }]}>+{formatMonto(a.monto, moneda)}</Text>
+                    {metasActivas.map((meta) => {
+                      const selected = destino === meta.id;
+                      return (
+                        <TouchableOpacity
+                          key={meta.id}
+                          style={[Common.chip, selected && Common.chipSelected]}
+                          onPress={() => setDestino(meta.id)}
+                          disabled={ocupado}
+                        >
+                          <Text style={[Common.chipText, selected && Common.chipTextSelected]}>
+                            {meta.icon} {meta.nombre}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-
-                  {automatico ? (
-                    <View style={Common.rowActions}>
-                      <Text style={Common.actionMuted}>Viene de un ingreso</Text>
-                    </View>
-                  ) : porEliminar === `ahorro-${a.id}` ? (
-                    <View style={Common.rowActions}>
-                      <Text style={Common.actionMuted}>¿Eliminar este ahorro?</Text>
-                      <TouchableOpacity onPress={() => handleEliminarAhorro(a)}>
-                        <Text style={Common.actionDanger}>Sí, eliminar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setPorEliminar(null)}>
-                        <Text style={Common.action}>No</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <View style={Common.rowActions}>
-                      <TouchableOpacity onPress={() => setPorEliminar(`ahorro-${a.id}`)} disabled={ocupado}>
-                        <Text style={Common.actionDanger}>Eliminar</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                </>
+              ) : null}
+              {error?.en === 'deposito' ? <Text style={Common.error}>{error.texto}</Text> : null}
+            </Card>
+          </>
+        }
+        renderFila={(a) => {
+          const automatico = a.operacionId !== null;
+          const meta = metas.find((m) => m.id === a.metaId);
+          return (
+            <View style={Common.row}>
+              <View style={Common.rowTop}>
+                <View style={Common.rowMain}>
+                  <Text style={Common.rowTitle}>
+                    {automatico ? `Automático · ${a.porcentaje}%` : 'Manual'}
+                    {meta ? ` → ${meta.nombre}` : ''}
+                  </Text>
+                  <Text style={Common.rowSub}>{formatFechaHora(a.fecha)}</Text>
                 </View>
-              );
-            })
-          )}
-        </Card>
-      </ScrollView>
+                <Text style={[Common.rowAmount, { color: Brand.ahorro }]}>+{formatMonto(a.monto, moneda)}</Text>
+              </View>
+
+              {automatico ? (
+                <View style={Common.rowActions}>
+                  <Text style={Common.actionMuted}>Viene de un ingreso</Text>
+                </View>
+              ) : porEliminar === `ahorro-${a.id}` ? (
+                <View style={Common.rowActions}>
+                  <Text style={Common.actionMuted}>¿Eliminar este ahorro?</Text>
+                  <TouchableOpacity onPress={() => handleEliminarAhorro(a)}>
+                    <Text style={Common.actionDanger}>Sí, eliminar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setPorEliminar(null)}>
+                    <Text style={Common.action}>No</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={Common.rowActions}>
+                  <TouchableOpacity onPress={() => setPorEliminar(`ahorro-${a.id}`)} disabled={ocupado}>
+                    <Text style={Common.actionDanger}>Eliminar</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }

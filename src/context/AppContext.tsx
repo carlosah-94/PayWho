@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as api from '@/services/api';
 import type { Session } from '@/services/api';
+import { limpiarNotificaciones } from '@/services/notificaciones';
+import { logger } from '@/utils/logger';
 
 export type Moneda = 'PEN' | 'USD' | 'EUR';
 
@@ -31,6 +33,9 @@ export interface Operacion {
   categoria: Categoria;
   monto: number;
   descripcion: string | null;
+  comprobante: string | null; // ruta de la foto del comprobante; null = sin foto
+  latitud: number | null; // ubicación (GPS) donde se registró; null = sin ubicación
+  longitud: number | null;
   fecha: string; // ISO
 }
 
@@ -96,7 +101,7 @@ async function readStored<T>(key: string): Promise<T | null> {
     const raw = await AsyncStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : null;
   } catch (e) {
-    console.warn('No se pudo cargar el almacenamiento local', e);
+    logger.warn('almacenamiento', `No se pudo leer ${key} del celular`, e);
     return null;
   }
 }
@@ -106,7 +111,7 @@ async function store(key: string, value: unknown) {
     if (value === null) await AsyncStorage.removeItem(key);
     else await AsyncStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
-    console.warn('No se pudo guardar el almacenamiento local', e);
+    logger.warn('almacenamiento', `No se pudo guardar ${key} en el celular`, e);
   }
 }
 
@@ -136,7 +141,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLists({ categorias: [], operaciones: [], metas: [], ahorros: [] });
     setSyncError(null);
     setDraftState({});
-    await Promise.all([store(SESSION_KEY, null), store(PROFILE_KEY, null), store(DATA_KEY, null)]);
+    await Promise.all([
+      store(SESSION_KEY, null),
+      store(PROFILE_KEY, null),
+      store(DATA_KEY, null),
+      // Los recordatorios eran de esta cuenta: se cancelan para que no le lleguen a otra persona.
+      limpiarNotificaciones(),
+    ]);
   }, [setLists]);
 
   /**

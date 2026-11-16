@@ -5,6 +5,7 @@ import { useApp, type Moneda } from '@/context/AppContext';
 import PrimaryButton from '@/components/PrimaryButton';
 import PercentSlider from '@/components/PercentSlider';
 import Logo from '@/components/Logo';
+import NotificacionesCard from '@/components/NotificacionesCard';
 import { Brand } from '@/constants/brand';
 import { useAviso } from '@/hooks/use-aviso';
 import { errorMessage } from '@/services/api';
@@ -113,6 +114,9 @@ export default function Ajustes() {
             loading={guardando}
           />
         </View>
+
+        {/* Notificaciones locales: recordatorio diario y aviso de meta completada. */}
+        <NotificacionesCard />
 
         <View style={styles.footer}>
           <Logo size={28} align="center" />
