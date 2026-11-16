@@ -8,6 +8,7 @@ import { Common } from '@/constants/styles';
 import { useApp, type Ahorro, type EstadoMeta, type MetaAhorro } from '@/context/AppContext';
 import { useAviso } from '@/hooks/use-aviso';
 import * as api from '@/services/api';
+import * as notificaciones from '@/services/notificaciones';
 import { formatFechaHora, formatMonto, parseMonto } from '@/utils/format';
 
 type Seccion = 'meta' | 'deposito' | 'lista';
@@ -140,6 +141,8 @@ export default function Ahorros() {
         const estado = estadoSegunAhorro(meta, (ahorradoPorMeta.get(meta.id) ?? 0) + valor);
         if (estado !== meta.estado) await api.updateMeta(meta.id, { estado });
         completada = estado === 'completada';
+        // Notificación local: avisa que la meta se acaba de completar con este ahorro.
+        if (completada && meta.estado !== 'completada') notificaciones.avisarMetaCompletada(meta.nombre);
       }
       setAviso(completada && meta ? `¡Meta “${meta.nombre}” completada! 🎉` : 'Ahorro registrado ✓');
       setMonto('');
