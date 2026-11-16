@@ -1,12 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import * as api from '@/services/api';
 import { logger } from '@/utils/logger';
 
 /**
- * Notificaciones locales de Pay Who: las programa el propio celular, no necesitan internet.
+ * Notificaciones de Pay Who.
+ * Locales (las programa el propio celular, no necesitan internet):
  * - Recordatorio diario para registrar los gastos, a la hora que elija el usuario.
  * - Aviso cuando una meta de ahorro se completa.
+ * Push (llegan desde internet a través del servicio de Expo y Firebase):
+ * - El celular se registra con un "token" que se guarda en la tabla dispositivo.
  */
 
 // Cómo se muestran las notificaciones cuando la app está abierta: como banner y en la lista.
@@ -23,6 +28,8 @@ Notifications.setNotificationHandler({
 const CANAL = 'recordatorios';
 const ID_RECORDATORIO = 'recordatorio-diario';
 const PREFERENCIA_KEY = '@paywho/notificaciones/v1';
+const PUSH_TOKEN_KEY = '@paywho/push-token/v1';
+const PUSH_URL = 'https://exp.host/--/api/v2/push/send'; // servicio de push de Expo
 
 export interface PreferenciaNotificaciones {
   activas: boolean;
@@ -128,11 +135,73 @@ export async function guardarPreferencia(preferencia: PreferenciaNotificaciones)
   await AsyncStorage.setItem(PREFERENCIA_KEY, JSON.stringify(preferencia));
 }
 
+// ---------------------------------------------------------------------------
+// Notificaciones push
+// ---------------------------------------------------------------------------
+
+/**
+ * Registra este celular para recibir push: pide a Expo el token del celular y lo guarda en Supabase.
+ * Devuelve el token, o null si no se pudo (por ejemplo en Expo Go, donde Android no permite push).
+ */
+export async function registrarPush(): Promise<string | null> {
+  try {
+    if (!(await tienePermiso())) return null;
+    await prepararCanal();
+    // El projectId identifica la app en Expo (lo agregó "eas init" en app.json).
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    await api.savePushToken(token, Platform.OS === 'ios' ? 'ios' : 'android');
+    await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
+    logger.info('notificaciones', 'Celular registrado para notificaciones push');
+    return token;
+  } catch (e) {
+    // Sin push la app sigue funcionando con las notificaciones locales.
+    logger.info('notificaciones', 'No se pudo registrar el celular para push', e);
+    return null;
+  }
+}
+
+/** Al cerrar sesión: borra el token de este celular para que no le lleguen push de esta cuenta. */
+export async function quitarPush() {
+  try {
+    const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+    if (!token) return;
+    await api.deletePushToken(token);
+    await AsyncStorage.removeItem(PUSH_TOKEN_KEY);
+  } catch (e) {
+    logger.warn('notificaciones', 'No se pudo quitar el token push', e);
+  }
+}
+
+/**
+ * Envía una notificación push de prueba a este celular a través del servicio de Expo.
+ * El mensaje sale a internet y vuelve al celular por Firebase, igual que una push real.
+ */
+export async function enviarPushDePrueba() {
+  const token = (await AsyncStorage.getItem(PUSH_TOKEN_KEY)) ?? (await registrarPush());
+  if (!token) throw new Error('Este celular no está registrado para notificaciones push.');
+  const respuesta = await fetch(PUSH_URL, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to: token,
+      title: 'Pay Who',
+      body: 'Notificación push de prueba: llegó desde internet 🚀',
+      channelId: CANAL,
+    }),
+  });
+  const resultado = await respuesta.json().catch(() => null);
+  if (!respuesta.ok || resultado?.data?.status === 'error') {
+    logger.warn('notificaciones', 'El servicio de push rechazó el envío', resultado);
+    throw new Error(resultado?.data?.message ?? 'El servicio de push rechazó el envío.');
+  }
+}
+
 /** Al cerrar sesión: se cancelan las notificaciones pendientes y se olvida la preferencia. */
 export async function limpiarNotificaciones() {
   try {
     await Notifications.cancelAllScheduledNotificationsAsync();
-    await AsyncStorage.removeItem(PREFERENCIA_KEY);
+    await AsyncStorage.multiRemove([PREFERENCIA_KEY, PUSH_TOKEN_KEY]);
   } catch (e) {
     logger.warn('notificaciones', 'No se pudieron limpiar las notificaciones', e);
   }

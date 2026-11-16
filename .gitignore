@@ -34,6 +34,9 @@ yarn-error.*
 .env
 .env*.local
 
+# Firebase (contiene llaves): no va al repositorio
+google-services.json
+
 # typescript
 *.tsbuildinfo
 

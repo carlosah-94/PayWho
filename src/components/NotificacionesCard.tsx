@@ -17,6 +17,7 @@ export default function NotificacionesCard() {
   const [ocupado, setOcupado] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [bloqueado, setBloqueado] = useState(false); // permiso negado de forma permanente
+  const [enviandoPush, setEnviandoPush] = useState(false);
 
   // Al abrir Ajustes se lee la preferencia guardada y se revisa si el permiso sigue concedido.
   useEffect(() => {
@@ -27,6 +28,8 @@ export default function NotificacionesCard() {
       if (!activo) return;
       setHora(preferencia.hora);
       setActivas(preferencia.activas && permiso);
+      // Se vuelve a registrar el celular para push por si su token cambió.
+      if (preferencia.activas && permiso) notificaciones.registrarPush();
       if (preferencia.activas && !permiso) {
         // El usuario quitó el permiso desde los ajustes del celular.
         setBloqueado(true);
@@ -52,6 +55,8 @@ export default function NotificacionesCard() {
           return;
         }
         await notificaciones.programarRecordatorio(nuevaHora);
+        // Push: se registra el celular en segundo plano (no hace esperar al usuario).
+        if (!activas) notificaciones.registrarPush();
       } else {
         await notificaciones.cancelarRecordatorio();
       }
@@ -64,6 +69,20 @@ export default function NotificacionesCard() {
       setMensaje('No se pudo programar la notificación. Inténtalo otra vez.');
     } finally {
       setOcupado(false);
+    }
+  };
+
+  const handlePushPrueba = async () => {
+    setEnviandoPush(true);
+    setMensaje(null);
+    setBloqueado(false);
+    try {
+      await notificaciones.enviarPushDePrueba();
+      setMensaje('Push enviada ✓ Debe llegar en unos segundos.');
+    } catch (e) {
+      setMensaje(e instanceof Error ? e.message : 'No se pudo enviar la notificación push.');
+    } finally {
+      setEnviandoPush(false);
     }
   };
 
@@ -103,6 +122,16 @@ export default function NotificacionesCard() {
             </TouchableOpacity>
           </View>
         </View>
+      ) : null}
+
+      {activas ? (
+        <TouchableOpacity style={styles.pushBoton} onPress={handlePushPrueba} disabled={ocupado || enviandoPush}>
+          {enviandoPush ? (
+            <ActivityIndicator color={Brand.textSecondary} />
+          ) : (
+            <Text style={styles.pushTexto}>🚀 Enviar notificación push de prueba</Text>
+          )}
+        </TouchableOpacity>
       ) : null}
 
       {mensaje ? (
@@ -145,6 +174,16 @@ const styles = StyleSheet.create({
   },
   pasoTexto: { fontSize: 18, fontWeight: '700', color: Brand.textPrimary },
   hora: { fontSize: 16, fontWeight: '800', color: Brand.textPrimary, minWidth: 54, textAlign: 'center' },
+  pushBoton: {
+    borderWidth: 1,
+    borderColor: Brand.border,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  pushTexto: { fontSize: 13, fontWeight: '600', color: Brand.textSecondary },
   mensajeFila: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
   mensaje: { flex: 1, fontSize: 12, color: Brand.ingreso },
   mensajeError: { color: Brand.danger },
