@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as api from '@/services/api';
 import type { Session } from '@/services/api';
-import { limpiarNotificaciones } from '@/services/notificaciones';
+import { limpiarNotificaciones, quitarPush } from '@/services/notificaciones';
 import { logger } from '@/utils/logger';
 
 export type Moneda = 'PEN' | 'USD' | 'EUR';
@@ -270,6 +270,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Primero (aún con sesión) se borra el token push de este celular en el servidor.
+    await quitarPush();
     await api.signOut();
     await clearLocalData();
   }, [clearLocalData]);

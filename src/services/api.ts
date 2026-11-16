@@ -637,3 +637,24 @@ export async function getComprobanteUrl(path: string) {
   });
   return `${BASE_URL}/storage/v1${data.signedURL}`;
 }
+
+// ---------------------------------------------------------------------------
+// Tabla dispositivo (celulares que reciben notificaciones push)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST con "merge-duplicates": guarda el token push de este celular.
+ * Si el token ya estaba guardado, no se duplica (la columna token es única).
+ */
+export async function savePushToken(token: string, plataforma: 'android' | 'ios') {
+  await request<unknown>('/rest/v1/dispositivo?on_conflict=token', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: { token, plataforma },
+  });
+}
+
+/** DELETE: quita el token de este celular (al cerrar sesión deja de recibir push de esta cuenta). */
+export async function deletePushToken(token: string) {
+  await request<unknown>(`/rest/v1/dispositivo?token=eq.${encodeURIComponent(token)}`, { method: 'DELETE' });
+}
