@@ -1,5 +1,6 @@
 import { Accelerometer } from 'expo-sensors';
 import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { logger } from '@/utils/logger';
 
 // Fuerza mínima para considerar que el celular se agitó (en reposo el acelerómetro marca cerca de 1).
@@ -22,27 +23,38 @@ export function useAgitar(alAgitar: () => void, activo = true) {
     let suscripcion: { remove: () => void } | null = null;
     let cancelado = false;
 
+    const escuchar = () => {
+      suscripcion?.remove();
+      Accelerometer.setUpdateInterval(150);
+      suscripcion = Accelerometer.addListener(({ x, y, z }) => {
+        const fuerza = Math.sqrt(x * x + y * y + z * z);
+        const ahora = Date.now();
+        if (fuerza > UMBRAL && ahora - ultima > ESPERA_MS) {
+          ultima = ahora;
+          callback.current();
+        }
+      });
+    };
+
     Accelerometer.isAvailableAsync()
       .then((disponible) => {
         if (!disponible || cancelado) {
           if (!disponible) logger.info('sensores', 'El acelerómetro no está disponible en este dispositivo');
           return;
         }
-        Accelerometer.setUpdateInterval(150);
-        suscripcion = Accelerometer.addListener(({ x, y, z }) => {
-          const fuerza = Math.sqrt(x * x + y * y + z * z);
-          const ahora = Date.now();
-          if (fuerza > UMBRAL && ahora - ultima > ESPERA_MS) {
-            ultima = ahora;
-            callback.current();
-          }
-        });
+        escuchar();
       })
       .catch((e) => logger.warn('sensores', 'No se pudo iniciar el acelerómetro', e));
+
+    // Android apaga el sensor cuando la app pasa a segundo plano; al volver se vuelve a escuchar.
+    const estadoApp = AppState.addEventListener('change', (estado) => {
+      if (estado === 'active' && suscripcion && !cancelado) escuchar();
+    });
 
     // Limpieza: se deja de escuchar el sensor al salir de la pantalla.
     return () => {
       cancelado = true;
+      estadoApp.remove();
       suscripcion?.remove();
     };
   }, [activo]);
